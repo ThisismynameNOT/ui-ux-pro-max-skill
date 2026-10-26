@@ -1,0 +1,47 @@
+name: Upgrade vulnerable gallery dependencies
+
+on:
+  push:
+    branches:
+      - security/nextjs-oct-2026-upgrade
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gallery-security-upgrade
+  cancel-in-progress: false
+
+jobs:
+  upgrade-and-verify:
+    if: github.ref == 'refs/heads/security/nextjs-oct-2026-upgrade'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: gallery/package-lock.json
+      - name: Generate manifest and lockfile using npm
+        working-directory: gallery
+        run: |
+          npm install --save-exact next@15.5.28 react@19.2.8 react-dom@19.2.8
+          npm install --save-dev --save-exact @types/react@19.2.18 @types/react-dom@19.2.5
+      - name: Check clean installs, tests and production build
+        working-directory: gallery
+        run: |
+          node -e "const p=require('./package.json'); if(p.dependencies.next!=='15.5.28') process.exit(1)"
+          npm ci
+          npm test
+          npm run build
+      - name: Commit verified dependencies (never commit on failed tests)
+        run: |
+          git add gallery/package.json gallery/package-lock.json
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(security): upgrade gallery Next.js and React after build verification [skip ci]'
+            git push origin HEAD:refs/heads/security/nextjs-oct-2026-upgrade
+          fi
